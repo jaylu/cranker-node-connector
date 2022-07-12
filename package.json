@@ -1,0 +1,38 @@
+{
+  "name": "cranker-node-connector",
+  "version": "0.0.1",
+  "description": "cranker connector implementation with node and typescript",
+  "main": "index.ts",
+  "scripts": {
+    "test": "jest",
+    "local": "ts-node ./test/run-local.ts"
+  },
+  "keywords": [
+    "cranker",
+    "connector",
+    "node",
+    "typescript"
+  ],
+  "author": "Jay LU",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/axios": "^0.14.0",
+    "@types/express": "^4.17.12",
+    "@types/jest": "^26.0.23",
+    "@types/ws": "^7.4.5",
+    "axios": "^0.21.1",
+    "body-parser": "^1.19.0",
+    "express": "^4.17.1",
+    "jest": "^27.0.5",
+    "ts-jest": "^27.0.3",
+    "ts-node": "^10.0.0",
+    "typescript": "^4.3.4"
+  },
+  "dependencies": {
+    "ws": "^7.5.0"
+  },
+  "optionalDependencies": {
+    "bufferutil": "^4.0.3",
+    "utf-8-validate": "^5.0.5"
+  }
+}
