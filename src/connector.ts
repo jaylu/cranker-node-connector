@@ -27,13 +27,10 @@ export interface SimpleStatistic {
     connected: number
 }
 
-export interface WebsocketConnection {
-    state: () => 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED',
-    deregister: () => void
-}
+type State = 'STARTING' | 'STARTED' | 'STOPPING' | 'STOPPED';
 
 export interface Connector {
-    state: 'STARTING' | 'STARTED' | 'STOPPING' | 'STOPPED',
+    state: State,
     stop: Promise<boolean> // isSuccess
     connections: { [key: string]: WebsocketConnection }
 }
@@ -42,27 +39,19 @@ function startWebsocket(
     registrationUri: string,
     targetServerName: string,
     targetUri: string,
-    onConsumed: (shouldStartNew: boolean) => {},
-    onClosed: (shouldStartNew: boolean, message: string) => {},
-    onOpen: () => {}): WebsocketConnection {
+    onCreated: (websocket: WebSocket) => void,
+    onConsumed: (websocket: WebSocket) => void
+): WebSocket {
 
     let timeoutHandle = null
     let intervalPingHandle = null
     let targetClientRequest: ClientRequest = null
     let isRequestBodyPending = false
-    let shouldStartNew = true // default should create successor
 
     const registerUrl = `${registrationUri}/register`
 
-    const getShouldStartNew = () => {
-        const oldState = shouldStartNew;
-        if (shouldStartNew) {
-            shouldStartNew = false;
-        }
-        return oldState;
-    }
 
-    const wsClient = new WebSocket(registerUrl, {
+    const websocket = new WebSocket(registerUrl, {
         timeout: 5000,
         headers: {
             'CrankerProtocol': '1.0',
@@ -70,13 +59,15 @@ function startWebsocket(
         }
     })
 
+    onCreated(websocket);
+
     const cleanUp = (code: number, reason: string) => {
-        onClosed(getShouldStartNew(), reason);
+        onConsumed(websocket);
         if (timeoutHandle) clearTimeout(timeoutHandle)
         if (intervalPingHandle) clearInterval(intervalPingHandle)
-        if (wsClient.readyState === WebSocket.OPEN || wsClient.readyState === WebSocket.CONNECTING) {
+        if (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING) {
             // TODO: force closing
-            wsClient.close(code, reason)
+            websocket.close(code, reason)
         }
     }
 
@@ -91,22 +82,21 @@ function startWebsocket(
 
     heartbeat()
 
-    wsClient.on('open', () => {
+    websocket.on('open', () => {
         log.info('on open')
-        onOpen();
         heartbeat()
-        intervalPingHandle = setInterval(() => wsClient.ping("ping"), PING_INTERVAL_IN_MILLIS)
+        intervalPingHandle = setInterval(() => websocket.ping("ping"), PING_INTERVAL_IN_MILLIS)
     });
 
-    wsClient.on('message', data => {
+    websocket.on('message', data => {
 
         log.info('-->', data)
 
-        onConsumed(getShouldStartNew());
+        onConsumed(websocket);
 
         if (!targetClientRequest) {
             const url = new URL(targetUri);
-            const {method, path, headers, endMarker} = parseProtocolRequest(data as string);
+            const { method, path, headers, endMarker } = parseProtocolRequest(data as string);
             const options: RequestOptions = {
                 host: url.hostname,
                 path: path,
@@ -118,14 +108,14 @@ function startWebsocket(
             isRequestBodyPending = endMarker === '_1' // REQUEST_BODY_PENDING_MARKER
 
             const callback = (response: IncomingMessage) => {
-                const {statusCode, statusMessage, headers} = response
+                const { statusCode, statusMessage, headers } = response
                 const responseLineString = buildProtocolResponse('HTTP/1.1', statusCode, statusMessage, headers);
 
-                wsClient.send(responseLineString)
+                websocket.send(responseLineString)
 
                 response.on('data', (chunk) => {
                     // TODO separate the chunk by max size
-                    wsClient.send(chunk)
+                    websocket.send(chunk)
                 })
 
                 response.on('close', () => {
@@ -169,47 +159,26 @@ function startWebsocket(
 
     })
 
-    wsClient.on('pong', () => {
+    websocket.on('pong', () => {
         log.info('on pong')
         heartbeat()
     });
 
-    wsClient.on('close', (number, reason) => {
+    websocket.on('close', (number, reason) => {
         log.info(`wsClient close, code=${number}, reason=${reason}`)
         cleanUp(STATUS_GO_AWAY, 'ws client close')
     });
 
-    wsClient.on('error', (error) => {
+    websocket.on('error', (error) => {
         log.info(`wsClient error, error=${error.message}`)
         cleanUp(STATUS_GO_AWAY, 'ws client error')
     });
 
-    return {
-        deregister: () => {
-            // TODO deregister
-        },
-        state: () => {
-            if (wsClient?.readyState) {
-                switch (wsClient.readyState as number) {
-                    case WebSocket.CONNECTING:
-                        return 'CONNECTING';
-                    case WebSocket.OPEN:
-                        return 'OPEN';
-                    case WebSocket.CLOSING:
-                        return 'CLOSING';
-                    case WebSocket.CLOSED:
-                        return 'CLOSED';
-                    default:
-                        return 'CLOSED'
-                }
-            } else {
-                return 'CLOSED'
-            }
-        },
-    }
+    return websocket;
 }
 
 export async function connectToRouter(config: ConnectorConfig): Connector {
+    var state: State = 'STARTING';
     const routerURI = config.routerURIProvider();
 
     log.info(`connecting to cranker with config: \r\n${JSON.stringify(config, null, 4)}`)
@@ -219,22 +188,38 @@ export async function connectToRouter(config: ConnectorConfig): Connector {
     // if (retryWaitTime > 0) await sleep(retryWaitTime)
     // log.info(`connecting to ${url}, waitTime=${retryWaitTime}ms`)
 
+    const addAnythingMissing = (uri: string, uriToIdleConnectionsMap: { [key: string]: WebSocket[] }) => {
+        if (state != 'STARTING' && state != 'STARTED') return;
+        if (!uriToIdleConnectionsMap[uri]) uriToIdleConnectionsMap[uri] = [];
+        if (uriToIdleConnectionsMap[uri].length < config.windowSize) {
+            //TODO:  add debounce time
+            startWebsocket(uri, config.targetServiceName, config.targetURI,
+                // onCreated
+                websocket => uriToIdleConnectionsMap[uri].push(websocket),
+                // onConsumed
+                websocket => {
+                    uriToIdleConnectionsMap[uri] = uriToIdleConnectionsMap[uri].filter(item => item != websocket);
+                    addAnythingMissing(uri, uriToIdleConnectionsMap);
+                }
+            );
+        }
+    }
 
     const currentUris = [];
-    const uriToConnectionsMap: { [key: string]: WebsocketConnection[] } = {};
+    const uriToIdleConnectionsMap: { [key: string]: WebSocket[] } = {};
     const refresh = () => {
         const latestUris = config.routerURIProvider();
         const toAdds = latestUris.filter(item => !currentUris.includes(item))
         const toRemoves = currentUris.filter(item => !latestUris.includes(item))
 
         for (const toAdd of toAdds) {
-            startWebsocket(toAdd, config.targetServiceName, config.targetURI, );
+            addAnythingMissing(toAdd, uriToIdleConnectionsMap)
         }
     }
 
 
     const context: Connector = {
-        state: 'STARTING',
+        state,
         stop: new Promise((resolve, reject) => {
 
         })
