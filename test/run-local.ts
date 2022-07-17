@@ -1,7 +1,7 @@
 import express from 'express'
 import * as http from 'http'
 import { AddressInfo } from "net";
-import { connectToRouter, ConnectorConfig } from '../src/connector'
+import { connectToRouter, ConnectorConfig, CrankerConnector } from '../src/connector'
 import { Server } from "http";
 import bodyParser from "body-parser";
 
@@ -17,6 +17,8 @@ export async function close(server: Server) {
     });
 }
 
+let connector: CrankerConnector;
+
 async function httpServer(config: { port: number }): Promise<http.Server> {
     const app = express()
     app.use(bodyParser.json())
@@ -30,6 +32,14 @@ async function httpServer(config: { port: number }): Promise<http.Server> {
         res.send('Hello World!')
     })
 
+    app.get('/my-service/connector', (req, res) => {
+        if (!connector) {
+            res.send('');
+            return;
+        }
+        res.status(200).send(connector.status());
+    })
+
     const httpServer = http.createServer(app);
     return listen(httpServer, config.port)
 }
@@ -38,13 +48,13 @@ async function main() {
 
     const server = await httpServer({port: 8080})
     const targetURI = `http://localhost:${(server.address() as AddressInfo).port}`
-    console.log(`http server started: ${targetURI}/my-service/hello`)
+    console.log(`http server started: ${targetURI}/my-service/get`)
 
-    const connector = connectToRouter({
+    connector = await connectToRouter({
         targetURI,
         targetServiceName: 'my-service',
-        routerURIProvider: () => (["wss://localhost:16488"]),
-        windowSize: 2
+        routerURIProvider: () => (["wss://localhost:12001"]),
+        slidingWindow: 2
     });
 
 }

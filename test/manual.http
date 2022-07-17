@@ -1,4 +1,4 @@
-GET https://localhost:9443/my-service/get
+GET http://localhost:8080/my-service/get
 
 ###
 
@@ -9,4 +9,9 @@ Content-Type: application/json
   "name": "hello world"
 }
 
+###
+
+GET https://localhost:12000/my-service/get
+
+###
 

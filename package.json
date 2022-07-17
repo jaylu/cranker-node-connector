@@ -5,7 +5,8 @@
   "main": "index.ts",
   "scripts": {
     "test": "jest",
-    "local": "ts-node ./test/run-local.ts"
+    "local": "ts-node ./test/run-local.ts",
+    "hammer": "ts-node ./test/run-hammer.ts"
   },
   "keywords": [
     "cranker",
