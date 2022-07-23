@@ -4,7 +4,7 @@ import http, { ClientRequest, IncomingMessage, RequestOptions } from "http";
 import https from 'https'
 import events from 'events'
 
-function httpClient(uri:string) {
+function httpClient(uri: string) {
     return uri.startsWith('https') ? https : http;
 }
 
@@ -39,9 +39,12 @@ type State = 'STARTING' | 'STARTED' | 'STOPPING' | 'STOPPED';
  */
 class ConnectorSocket extends events.EventEmitter {
 
-    private readonly registrationUri: string;
-    private readonly targetServerName: string;
-    private readonly targetUri: string;
+    readonly registrationUri: string;
+    readonly targetServerName: string;
+    readonly targetUri: string;
+
+    private timeoutHandle: NodeJS.Timeout;
+    private intervalPingHandle: NodeJS.Timeout;
 
     isConsumed: boolean;
     websocket: WebSocket;
@@ -56,13 +59,33 @@ class ConnectorSocket extends events.EventEmitter {
         this.isConsumed = false;
     }
 
-    stop() {
+    heartbeat() {
+        if (this.timeoutHandle) clearTimeout(this.timeoutHandle)
+        this.timeoutHandle = setTimeout(() => {
+            log.warn('no pong heart beat from server, clean up it.')
+            this.cleanUp(STATUS_GO_AWAY, 'timeout')
+        }, IDLE_TIMEOUT_IN_MILLIS)
+    }
 
+    cleanUp(code: number, reason: string) {
+        if (!this.isConsumed) {
+            this.emit('error')
+        }
+        if (this.timeoutHandle) clearTimeout(this.timeoutHandle)
+        if (this.intervalPingHandle) clearInterval(this.intervalPingHandle)
+        if (this.websocket.readyState === WebSocket.OPEN ||
+            this.websocket.readyState === WebSocket.CONNECTING) {
+            // TODO: force closing
+            this.websocket.close(code, reason)
+        }
+    }
+
+    stop() {
+        this.cleanUp(STATUS_GO_AWAY, 'server stop');
     }
 
     start() {
-        let timeoutHandle = null
-        let intervalPingHandle = null
+
         let targetClientRequest: ClientRequest = null
         let isRequestBodyPending = false
 
@@ -70,45 +93,24 @@ class ConnectorSocket extends events.EventEmitter {
 
         log.info(`connecting to ${registerUrl}`);
 
-        const websocket = new WebSocket(registerUrl, {
-            timeout: 5000,
+        this.websocket = new WebSocket(registerUrl, {
+            timeout: 2000,
             headers: {
                 'CrankerProtocol': '1.0',
                 'Route': this.targetServerName
             }
         })
 
-        const cleanUp = (code: number, reason: string) => {
-            if (!this.isConsumed) {
-                this.emit('error')
-            }
-            if (timeoutHandle) clearTimeout(timeoutHandle)
-            if (intervalPingHandle) clearInterval(intervalPingHandle)
-            if (websocket.readyState === WebSocket.OPEN || websocket.readyState === WebSocket.CONNECTING) {
-                // TODO: force closing
-                websocket.close(code, reason)
-            }
-        }
+        this.heartbeat()
 
-        const heartbeat = () => {
-            log.info("heartbeat")
-            if (timeoutHandle) clearTimeout(timeoutHandle)
-            timeoutHandle = setTimeout(() => {
-                log.warn('no pong heart beat from server, clean up it.')
-                cleanUp(STATUS_GO_AWAY, 'timeout')
-            }, IDLE_TIMEOUT_IN_MILLIS)
-        };
-
-        heartbeat()
-
-        websocket.on('open', () => {
+        this.websocket.on('open', () => {
             log.info('on open')
             this.emit('open');
-            heartbeat()
-            intervalPingHandle = setInterval(() => websocket.ping("ping"), PING_INTERVAL_IN_MILLIS)
+            this.heartbeat()
+            this.intervalPingHandle = setInterval(() => this.websocket.ping("ping"), PING_INTERVAL_IN_MILLIS)
         });
 
-        websocket.on('message', data => {
+        this.websocket.on('message', data => {
 
             log.info('-->', data)
 
@@ -134,24 +136,24 @@ class ConnectorSocket extends events.EventEmitter {
                     const {statusCode, statusMessage, headers} = response
                     const responseLineString = buildProtocolResponse('HTTP/1.1', statusCode, statusMessage, headers);
 
-                    websocket.send(responseLineString)
+                    this.websocket.send(responseLineString)
 
                     response.on('data', (chunk) => {
                         // TODO separate the chunk by max size
                         log.info('targetClientRequest data : ', chunk)
-                        websocket.send(chunk)
+                        this.websocket.send(chunk)
                     })
 
                     response.on('close', () => {
-                        cleanUp(STATUS_GO_AWAY, 'target server close.')
+                        this.cleanUp(STATUS_GO_AWAY, 'target server close.')
                         log.info('targetClientRequest close')
                     })
                     response.on('end', () => {
-                        cleanUp(STATUS_NORMAL_CLOSE, 'target server end.')
+                        this.cleanUp(STATUS_NORMAL_CLOSE, 'target server end.')
                         log.info('targetClientRequest end')
                     })
                     response.on('error', () => {
-                        cleanUp(STATUS_SERVER_UNEXPECTED_CONDITION, 'target server error.')
+                        this.cleanUp(STATUS_SERVER_UNEXPECTED_CONDITION, 'target server error.')
                         log.info('targetClientRequest error')
                     })
                 }
@@ -181,26 +183,21 @@ class ConnectorSocket extends events.EventEmitter {
             }
 
             // it shouldn't reach here..
-            cleanUp(STATUS_SERVER_UNEXPECTED_CONDITION, "cranker protocol error")
+            this.cleanUp(STATUS_SERVER_UNEXPECTED_CONDITION, "cranker protocol error")
 
         })
 
-        websocket.on('pong', () => {
-            log.info('on pong')
-            heartbeat()
-        });
+        this.websocket.on('pong', () => this.heartbeat());
 
-        websocket.on('close', (number, reason) => {
+        this.websocket.on('close', (number, reason) => {
             log.info(`wsClient close, code=${number}, reason=${reason}`)
-            cleanUp(STATUS_GO_AWAY, 'ws client close')
+            this.cleanUp(STATUS_GO_AWAY, 'ws client close')
         });
 
-        websocket.on('error', (error) => {
+        this.websocket.on('error', (error) => {
             log.info(`wsClient error, error=${error.message}`)
-            cleanUp(STATUS_GO_AWAY, 'ws client error')
+            this.cleanUp(STATUS_GO_AWAY, 'ws client error')
         });
-
-        this.websocket = websocket;
     }
 }
 
@@ -211,11 +208,11 @@ class ConnectorSocket extends events.EventEmitter {
 class RouterRegistration {
 
     public registrationUri: string;
-    private readonly targetServerName: string;
-    private readonly targetUri: string;
-    private readonly slidingWindow: number;
+    readonly targetServerName: string;
+    readonly targetUri: string;
+    readonly slidingWindow: number;
 
-    idleSockets: ConnectorSocket[];
+    readonly idleSockets: ConnectorSocket[];
     errorAttempt: number;
     state: State;
 
@@ -232,15 +229,27 @@ class RouterRegistration {
         this.state = 'STARTING';
     }
 
+    removeFromIdleSocket(socket: ConnectorSocket) {
+        const index = this.idleSockets.indexOf(socket);
+        if (index >= 0) {
+            this.idleSockets.splice(index, 1);
+        }
+    }
+
     addAnythingMissing() {
         if (this.state != 'STARTING' && this.state != 'STARTED') return;
-        if (this.idleSockets.length < this.slidingWindow) {
+        while (this.idleSockets.length < this.slidingWindow) {
             let connectorSocket = new ConnectorSocket(this.registrationUri, this.targetServerName, this.targetUri);
             this.idleSockets.push(connectorSocket);
             connectorSocket
                 .on('open', () => this.errorAttempt = 0)
-                .on('consumed', () => this.addAnythingMissing())
+                .on('consumed', () => {
+                    this.removeFromIdleSocket(connectorSocket);
+                    this.addAnythingMissing();
+                })
                 .on('error', async () => {
+                    this.errorAttempt++;
+                    this.removeFromIdleSocket(connectorSocket);
                     await sleep(retryWaitInMillis(this.errorAttempt));
                     this.addAnythingMissing();
                 }).start();
@@ -309,10 +318,16 @@ export class CrankerConnector {
     }
 
     status(): any {
-        this.registrations.map(item => ({
+        return this.registrations.map(item => ({
             state: item.state,
             registrationUri: item.registrationUri,
-            idleSockets: item.idleSockets
+            targetServerName: item.targetServerName,
+            targetUri: item.targetUri,
+            slidingWindow: item.slidingWindow,
+            idleSockets: item.idleSockets.map(item => ({
+                isConsumed: item.isConsumed,
+                websocketReadyState: item.websocket.readyState
+            }))
         }))
     }
 }

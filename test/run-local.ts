@@ -1,9 +1,8 @@
 import express from 'express'
 import * as http from 'http'
+import { Server } from 'http'
 import { AddressInfo } from "net";
-import { connectToRouter, ConnectorConfig, CrankerConnector } from '../src/connector'
-import { Server } from "http";
-import bodyParser from "body-parser";
+import { connectToRouter, CrankerConnector } from '../src/connector'
 
 export async function listen(server: Server, port: number): Promise<Server> {
     return new Promise((resolve, reject) => {
@@ -21,15 +20,15 @@ let connector: CrankerConnector;
 
 async function httpServer(config: { port: number }): Promise<http.Server> {
     const app = express()
-    app.use(bodyParser.json())
+    app.use(express.json())
 
     app.get('/my-service/get', (req, res) => {
-        res.send('Hello World!')
+        res.status(200).send('Hello World!')
     })
 
     app.post('/my-service/post', (req, res) => {
         console.log('server received body', JSON.stringify(req.body))
-        res.send('Hello World!')
+        res.status(200).send(req.body)
     })
 
     app.get('/my-service/connector', (req, res) => {
