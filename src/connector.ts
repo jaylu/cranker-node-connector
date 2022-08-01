@@ -11,7 +11,7 @@ function httpClient(uri: string) {
 const log = {
     info: (...args) => console.log(...args),
     warn: (...args) => console.warn(...args),
-    debug: (...args) => console.debug(...args),
+    debug: (...args) => { }, // disabled.
     error: (...args) => console.error(...args)
 }
 
@@ -95,7 +95,7 @@ class ConnectorSocket extends events.EventEmitter {
 
         const registerUrl = `${this.registrationUri}/register`
 
-        log.info(`connecting to ${registerUrl}`);
+        log.debug(`connecting to ${registerUrl}`);
 
         this.websocket = new WebSocket(registerUrl, {
             timeout: 2000,
@@ -109,7 +109,7 @@ class ConnectorSocket extends events.EventEmitter {
         this.heartbeat()
 
         this.websocket.on('open', () => {
-            log.info('on open')
+            log.debug('on open')
             this.emit('open');
             this.heartbeat()
             this.intervalPingHandle = setInterval(() => this.websocket.ping("ping"), PING_INTERVAL_IN_MILLIS)
@@ -117,7 +117,7 @@ class ConnectorSocket extends events.EventEmitter {
 
         this.websocket.on('message', data => {
 
-            log.info('-->', data)
+            log.debug('-->', data)
 
             this.isConsumed = true;
             this.emit('consumed');
@@ -133,7 +133,7 @@ class ConnectorSocket extends events.EventEmitter {
                     headers
                 };
 
-                log.info(`start new http request with option: ${JSON.stringify(options)}`)
+                log.debug(`start new http request with option: ${JSON.stringify(options)}`)
 
                 isRequestBodyPending = endMarker === '_1' // REQUEST_BODY_PENDING_MARKER
 
@@ -145,26 +145,26 @@ class ConnectorSocket extends events.EventEmitter {
 
                     response.on('data', (chunk) => {
                         // TODO separate the chunk by max size
-                        log.info('targetClientRequest data : ', chunk)
+                        log.debug('targetClientRequest data : ', chunk)
                         this.websocket.send(chunk)
                     })
 
                     response.on('close', () => {
                         this.cleanUp(STATUS_GO_AWAY, 'target server close.')
-                        log.info('targetClientRequest close')
+                        log.debug('targetClientRequest close')
                     })
                     response.on('end', () => {
                         this.cleanUp(STATUS_NORMAL_CLOSE, 'target server end.')
-                        log.info('targetClientRequest end')
+                        log.debug('targetClientRequest end')
                     })
                     response.on('error', () => {
                         this.cleanUp(STATUS_SERVER_UNEXPECTED_CONDITION, 'target server error.')
-                        log.info('targetClientRequest error')
+                        log.debug('targetClientRequest error')
                     })
                 }
 
                 targetClientRequest = httpClient(this.targetUri).request(options, callback);
-                log.info('targetClientRequest created')
+                log.debug('targetClientRequest created')
 
                 if (endMarker === '_2') {
                     // REQUEST_HAS_NO_BODY_MARKER
@@ -195,12 +195,12 @@ class ConnectorSocket extends events.EventEmitter {
         this.websocket.on('pong', () => this.heartbeat());
 
         this.websocket.on('close', (number, reason) => {
-            log.info(`wsClient close, code=${number}, reason=${reason}`)
+            log.debug(`wsClient close, code=${number}, reason=${reason}`)
             this.cleanUp(STATUS_GO_AWAY, 'ws client close')
         });
 
         this.websocket.on('error', (error) => {
-            log.info(`wsClient error, error=${error.message}`)
+            log.debug(`wsClient error, error=${error.message}`)
             this.cleanUp(STATUS_GO_AWAY, 'ws client error')
         });
     }
@@ -271,6 +271,7 @@ class RouterRegistration {
 
     stop() {
         this.state = 'STOPPING';
+        // TODO: should send unregister to cranker and let cranker aware connector are existing.
         for (const idleSocket of this.idleSockets) {
             idleSocket.stop()
         }
@@ -303,13 +304,17 @@ export class CrankerConnector {
             const routerRegistration = new RouterRegistration(toAdd, this.config.targetServiceName, this.config.targetURI, this.config.slidingWindow, this.config.httpsAgent);
             this.registrations.push(routerRegistration);
             routerRegistration.start();
+            log.info(`cranker registration started: registrationUri=${routerRegistration.registrationUri}`)
         }
 
         for (const toRemove of toRemoves) {
 
             this.registrations
                 .filter(item => item.registrationUri === toRemove)
-                .forEach(item => item.stop())
+                .forEach(item => {
+                    item.stop()
+                    log.info(`cranker registration stopped: registrationUri=${item.registrationUri}`)
+                })
 
             this.registrations = this.registrations.filter(item => item.registrationUri !== toRemove)
         }
