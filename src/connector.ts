@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import { buildProtocolResponse, parseProtocolRequest, retryWaitInMillis, sleep } from "./utils";
+import { buildProtocolResponse, generateUUID, parseProtocolRequest, retryWaitInMillis, sleep } from "./utils";
 import http, { ClientRequest, IncomingMessage, RequestOptions } from "http";
 import https from 'https'
 import events from 'events'
@@ -40,6 +40,7 @@ type State = 'STARTING' | 'STARTED' | 'STOPPING' | 'STOPPED';
  */
 class ConnectorSocket extends events.EventEmitter {
 
+    private connectorInstanceID: string;
     readonly registrationUri: string;
     readonly targetServerName: string;
     readonly targetUri: string;
@@ -51,11 +52,13 @@ class ConnectorSocket extends events.EventEmitter {
     isConsumed: boolean;
     websocket: WebSocket;
 
-    constructor(registrationUri: string,
+    constructor(connectorInstanceID: string,
+        registrationUri: string,
         targetServerName: string,
         targetUri: string,
         httpsAgent?: https.Agent) {
         super();
+        this.connectorInstanceID = connectorInstanceID;
         this.registrationUri = registrationUri;
         this.targetServerName = targetServerName;
         this.targetUri = targetUri;
@@ -93,7 +96,7 @@ class ConnectorSocket extends events.EventEmitter {
         let targetClientRequest: ClientRequest = null
         let isRequestBodyPending = false
 
-        const registerUrl = `${this.registrationUri}/register`
+        const registerUrl = `${this.registrationUri}/register?connectorInstanceID=${encodeURIComponent(this.connectorInstanceID)}&componentName=${this.targetServerName}`
 
         log.debug(`connecting to ${registerUrl}`);
 
@@ -212,6 +215,7 @@ class ConnectorSocket extends events.EventEmitter {
  */
 class RouterRegistration {
 
+    private connectorInstanceID: string;
     public registrationUri: string;
     readonly targetServerName: string;
     readonly targetUri: string;
@@ -222,11 +226,13 @@ class RouterRegistration {
     errorAttempt: number;
     state: State;
 
-    constructor(registrationUri: string,
+    constructor(connectorInstanceID: string,
+        registrationUri: string,
         targetServerName: string,
         targetUri: string,
         slidingWindow: number,
         httpsAgent?: https.Agent) {
+        this.connectorInstanceID = connectorInstanceID;
         this.registrationUri = registrationUri;
         this.targetServerName = targetServerName;
         this.targetUri = targetUri;
@@ -247,7 +253,7 @@ class RouterRegistration {
     addAnythingMissing() {
         if (this.state != 'STARTING' && this.state != 'STARTED') return;
         while (this.idleSockets.length < this.slidingWindow) {
-            let connectorSocket = new ConnectorSocket(this.registrationUri, this.targetServerName, this.targetUri, this.httpsAgent);
+            let connectorSocket = new ConnectorSocket(this.connectorInstanceID, this.registrationUri, this.targetServerName, this.targetUri, this.httpsAgent);
             this.idleSockets.push(connectorSocket);
             connectorSocket
                 .on('open', () => this.errorAttempt = 0)
@@ -282,6 +288,7 @@ class RouterRegistration {
 
 export class CrankerConnector {
 
+    private readonly connectorInstanceID = generateUUID();
     private config: ConnectorConfig;
     private scheduler: NodeJS.Timeout;
 
@@ -301,7 +308,7 @@ export class CrankerConnector {
         const toRemoves = currentUris.filter(item => !latestUris.includes(item))
 
         for (const toAdd of toAdds) {
-            const routerRegistration = new RouterRegistration(toAdd, this.config.targetServiceName, this.config.targetURI, this.config.slidingWindow, this.config.httpsAgent);
+            const routerRegistration = new RouterRegistration(this.connectorInstanceID, toAdd, this.config.targetServiceName, this.config.targetURI, this.config.slidingWindow, this.config.httpsAgent);
             this.registrations.push(routerRegistration);
             routerRegistration.start();
             log.info(`cranker registration started: registrationUri=${routerRegistration.registrationUri}`)

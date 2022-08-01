@@ -42,7 +42,7 @@ async function httpServer(config: { port: number }): Promise<http.Server> {
 
 async function main() {
 
-    const server = await httpServer({ port: 8080 })
+    const server = await httpServer({ port: 0 })
     const targetURI = `http://localhost:${(server.address() as AddressInfo).port}`
     console.log(`http server started: ${targetURI}/my-service/get`)
 
