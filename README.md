@@ -7,7 +7,7 @@ A connector side implementation of [cranker](https://github.com/nicferrier/crank
 1. install dependency
 
     ```shell
-    npm install -D nodejs-cranker-connector
+    npm install nodejs-cranker-connector
     ```
 
 1. register to cranker gateway as below
