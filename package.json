@@ -1,6 +1,6 @@
 {
   "name": "nodejs-cranker-connector",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "cranker connector implementation with node and typescript",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
