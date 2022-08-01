@@ -30,6 +30,7 @@ export interface ConnectorConfig {
     targetServiceName: string
     routerURIProvider: () => string[]
     slidingWindow: number
+    httpsAgent?: https.Agent
 }
 
 type State = 'STARTING' | 'STARTED' | 'STOPPING' | 'STOPPED';
@@ -42,6 +43,7 @@ class ConnectorSocket extends events.EventEmitter {
     readonly registrationUri: string;
     readonly targetServerName: string;
     readonly targetUri: string;
+    readonly httpsAgent: https.Agent;
 
     private timeoutHandle: NodeJS.Timeout;
     private intervalPingHandle: NodeJS.Timeout;
@@ -50,13 +52,15 @@ class ConnectorSocket extends events.EventEmitter {
     websocket: WebSocket;
 
     constructor(registrationUri: string,
-                targetServerName: string,
-                targetUri: string) {
+        targetServerName: string,
+        targetUri: string,
+        httpsAgent?: https.Agent) {
         super();
         this.registrationUri = registrationUri;
         this.targetServerName = targetServerName;
         this.targetUri = targetUri;
         this.isConsumed = false;
+        this.httpsAgent = httpsAgent;
     }
 
     heartbeat() {
@@ -98,7 +102,8 @@ class ConnectorSocket extends events.EventEmitter {
             headers: {
                 'CrankerProtocol': '1.0',
                 'Route': this.targetServerName
-            }
+            },
+            agent: this.httpsAgent
         })
 
         this.heartbeat()
@@ -119,7 +124,7 @@ class ConnectorSocket extends events.EventEmitter {
 
             if (!targetClientRequest) {
                 const url = new URL(this.targetUri);
-                const {method, path, headers, endMarker} = parseProtocolRequest(data as string);
+                const { method, path, headers, endMarker } = parseProtocolRequest(data as string);
                 const options: RequestOptions = {
                     host: url.hostname,
                     path: path,
@@ -133,7 +138,7 @@ class ConnectorSocket extends events.EventEmitter {
                 isRequestBodyPending = endMarker === '_1' // REQUEST_BODY_PENDING_MARKER
 
                 const callback = (response: IncomingMessage) => {
-                    const {statusCode, statusMessage, headers} = response
+                    const { statusCode, statusMessage, headers } = response
                     const responseLineString = buildProtocolResponse('HTTP/1.1', statusCode, statusMessage, headers);
 
                     this.websocket.send(responseLineString)
@@ -211,19 +216,22 @@ class RouterRegistration {
     readonly targetServerName: string;
     readonly targetUri: string;
     readonly slidingWindow: number;
+    readonly httpsAgent: https.Agent;
 
     readonly idleSockets: ConnectorSocket[];
     errorAttempt: number;
     state: State;
 
     constructor(registrationUri: string,
-                targetServerName: string,
-                targetUri: string,
-                slidingWindow: number) {
+        targetServerName: string,
+        targetUri: string,
+        slidingWindow: number,
+        httpsAgent?: https.Agent) {
         this.registrationUri = registrationUri;
         this.targetServerName = targetServerName;
         this.targetUri = targetUri;
         this.slidingWindow = slidingWindow;
+        this.httpsAgent = httpsAgent;
         this.idleSockets = [];
         this.errorAttempt = 0;
         this.state = 'STARTING';
@@ -239,7 +247,7 @@ class RouterRegistration {
     addAnythingMissing() {
         if (this.state != 'STARTING' && this.state != 'STARTED') return;
         while (this.idleSockets.length < this.slidingWindow) {
-            let connectorSocket = new ConnectorSocket(this.registrationUri, this.targetServerName, this.targetUri);
+            let connectorSocket = new ConnectorSocket(this.registrationUri, this.targetServerName, this.targetUri, this.httpsAgent);
             this.idleSockets.push(connectorSocket);
             connectorSocket
                 .on('open', () => this.errorAttempt = 0)
@@ -292,7 +300,7 @@ export class CrankerConnector {
         const toRemoves = currentUris.filter(item => !latestUris.includes(item))
 
         for (const toAdd of toAdds) {
-            const routerRegistration = new RouterRegistration(toAdd, this.config.targetServiceName, this.config.targetURI, this.config.slidingWindow);
+            const routerRegistration = new RouterRegistration(toAdd, this.config.targetServiceName, this.config.targetURI, this.config.slidingWindow, this.config.httpsAgent);
             this.registrations.push(routerRegistration);
             routerRegistration.start();
         }

@@ -1,4 +1,4 @@
-import { buildProtocolResponse, parseProtocolRequest, retryWaitInMillis, sleep } from "./utils";
+import { buildProtocolResponse, parseProtocolRequest, retryWaitInMillis, sleep } from "../src/utils";
 
 describe('utils', function () {
     it('can parse protocol request - no body', () => {

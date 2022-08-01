@@ -1,1 +1,1 @@
-export { connectToRouter } from './connector'
+export { connectToRouter, ConnectorConfig, CrankerConnector } from './connector'

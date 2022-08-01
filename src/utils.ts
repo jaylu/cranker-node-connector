@@ -6,7 +6,7 @@ export interface ProtocolRequest {
     method: string
     path: string
     httpProtocol: string
-    headers: {[key: string]: string}
+    headers: { [key: string]: string }
     endMarker: string
 }
 
@@ -16,23 +16,23 @@ export function parseProtocolRequest(content: string): ProtocolRequest {
     const [method, path, httpProtocol] = lines[0].split(' ');
 
     const headerLines = lines.slice(1, lines.length - 1)
-    const headers = headerLines.reduce((accu: any, current: string) => {
+    const headers = headerLines.reduce((acc: any, current: string) => {
 
         const separatorIndex = current.indexOf(':')
         if (separatorIndex == -1) {
-            return accu
+            return acc
         }
 
         const key = current.slice(0, separatorIndex)
         const value = current.slice(separatorIndex + 1, current.length)
 
-        if (accu[key]) {
-            accu[key] = accu[key] + ';' + value
+        if (acc[key]) {
+            acc[key] = acc[key] + ';' + value
         } else {
-            accu[key] = value
+            acc[key] = value
         }
 
-        return accu
+        return acc
     }, {})
 
     const endMarker = lines[lines.length - 1] // last line
@@ -46,7 +46,7 @@ export function parseProtocolRequest(content: string): ProtocolRequest {
     }
 }
 
-export function buildProtocolResponse(httpProtocol: string, status:number, reason: string, headers: any): string {
+export function buildProtocolResponse(httpProtocol: string, status: number, reason: string, headers: any): string {
     const headersArray = []
     for (const key of Object.keys(headers)) {
         const value = headers[key];
@@ -64,15 +64,15 @@ export function buildProtocolResponse(httpProtocol: string, status:number, reaso
 
 export async function sleep(timeInMillis) {
     return new Promise<any>(resolve => {
-        setTimeout( () => {
+        setTimeout(() => {
             resolve(null);
         }, timeInMillis)
     })
 }
 
-export function retryWaitInMillis( retryCount:number) : number {
+export function retryWaitInMillis(retryCount: number): number {
     if (retryCount === 0) return 0
     if (retryCount > 14) return 10000
     const wait = 500 + Math.pow(2, retryCount)
-    return (wait > 10000) ? 10000: wait
+    return (wait > 10000) ? 10000 : wait
 }
