@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "build": "rm -rf ./dist && tsc",
-    "release": "npm version patch && npm publish",
+    "release": "npm version patch && npm run build && npm publish",
     "test": "jest",
     "local": "ts-node ./test/run-local.ts",
     "hammer": "ts-node ./test/run-hammer.ts"
