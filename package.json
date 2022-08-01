@@ -1,9 +1,14 @@
 {
-  "name": "cranker-node-connector",
+  "name": "nodejs-cranker-connector",
   "version": "0.0.1",
   "description": "cranker connector implementation with node and typescript",
-  "main": "index.ts",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "/dist"
+  ],
   "scripts": {
+    "build": "rm -rf ./dist && tsc",
     "test": "jest",
     "local": "ts-node ./test/run-local.ts",
     "hammer": "ts-node ./test/run-hammer.ts"
@@ -15,7 +20,7 @@
     "typescript"
   ],
   "author": "Jay LU",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
     "@types/axios": "^0.14.0",
     "@types/express": "^4.17.12",

@@ -1,0 +1,1 @@
+export { connectToRouter } from './connector'
