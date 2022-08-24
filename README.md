@@ -10,18 +10,30 @@ A connector side implementation of [cranker](https://github.com/nicferrier/crank
     npm install nodejs-cranker-connector
     ```
 
-1. register to cranker gateway as below
+2. register to cranker gateway as below
 
     ```javascript
 
     // connect to cranker like
     const connector = await connectToRouter({
-        targetURI,
-        targetServiceName: 'my-service',
+        targetURI, 
+        targetServiceName: 'my-service', 
         routerURIProvider: () => (["ws://localhost:12002"]),
         slidingWindow: 2
     });
 
+    // or if you need to connect to cranker server with wss, provide the httpsAgent
+    const connector = await connectToRouter({
+        targetURI,
+        targetServiceName: 'my-service',
+        routerURIProvider: () => (["wss://localhost:12002"]),
+        slidingWindow: 2,
+        httpsAgent: new https.Agent({
+            rejectUnauthorized: false // demo purpose, don't do this in production!
+        })
+    });
+
+    // the connector object contains the connection status information
     // you can expose connector status in your microservice's health
     // don't expose this to public, it's only for DevOps purpose
     app.get('/health', (req, res) => {
@@ -32,16 +44,7 @@ A connector side implementation of [cranker](https://github.com/nicferrier/crank
         });
     })
 
-    // if you need to connect to cranker server with wss, provide the httpsAgent
-    const connector = await connectToRouter({
-        targetURI,
-        targetServiceName: 'my-service',
-        routerURIProvider: () => (["wss://localhost:12002"]),
-        slidingWindow: 2,
-        httpsAgent: new https.Agent({
-            rejectUnauthorized: false // demo purpose, don't do this in production!
-        })
-    });
+    
     ```
 
 ## Development

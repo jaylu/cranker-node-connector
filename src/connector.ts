@@ -40,7 +40,7 @@ type State = 'STARTING' | 'STARTED' | 'STOPPING' | 'STOPPED';
  */
 class ConnectorSocket extends events.EventEmitter {
 
-    private connectorInstanceID: string;
+    private readonly connectorInstanceID: string;
     readonly registrationUri: string;
     readonly targetServerName: string;
     readonly targetUri: string;
@@ -215,7 +215,7 @@ class ConnectorSocket extends events.EventEmitter {
  */
 class RouterRegistration {
 
-    private connectorInstanceID: string;
+    private readonly connectorInstanceID: string;
     public registrationUri: string;
     readonly targetServerName: string;
     readonly targetUri: string;
